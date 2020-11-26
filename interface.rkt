@@ -1,0 +1,224 @@
+#lang racket
+(require (lib "Graphics.ss""graphics"))
+(require 2htdp/universe)
+(require 2htdp/image)
+(require "othello.rkt")
+(open-graphics)
+
+
+;------------------------------------------------------------------------------------------
+(define (pantalla-inicio) ;crear la pantalla de inicio del juego
+  (define inicio (open-viewport "Othello" 400 400))
+  ((draw-viewport inicio) "white") ;declarar el color del fondo de la ventana
+  ((draw-pixmap inicio) "1jugador.png" (make-posn 120 260)) ;insertar imagenes
+  ((draw-pixmap inicio) "2jugadores.png" (make-posn 220 260))
+  ((draw-pixmap inicio) "logo.png" (make-posn 70 60))
+  inicio ;devuelve la ventana
+  )
+;------------------------------------------------------------------------------------------
+(define (pantalla-final ganador) ;crear la pantalla del final del juego
+  (define final (open-viewport "Othello" 400 400))
+  ((draw-viewport final ) "white")
+  ((draw-pixmap final) "logo.png" (make-posn 70 20))
+  ((draw-pixmap final) "ganador.png" (make-posn 100 190))
+ ((draw-string final)  (make-posn 185 369)  ganador "black") 
+  final)
+
+;------------------------------------------------------------------------------------------
+(define (pantalla-aviso-no-movimientos); crear la pantalla de aviso de que no hay mas movimientos posibles y que se cambia el turno
+  (define aviso (open-viewport "Aviso Othello" 400 150))
+   ((draw-viewport aviso ) "white")
+  ((draw-pixmap aviso) "aviso.jpg" (make-posn 10 -10))
+ ((draw-string aviso)  (make-posn 210 50)  "Cambio de turno")
+  ((draw-string aviso)  (make-posn 170 20)  "No quedan mas movimientos")
+  ((draw-solid-rectangle aviso)  (make-posn 220 80) 90 30 "red" )
+  ((draw-string aviso)  (make-posn 230 100)  "ACEPTAR" "white")
+  aviso
+   )
+;------------------------------------------------------------------------------------------
+(define (aceptar-aviso aviso click) ;simular funcionalidad del boton aceptar de la pantalla del aviso (recursiva)
+  (define x (posn-x click)) ;accede a la x de la posicion
+  (define y (posn-y click)) ; accede a la y d ela posicion
+  (if(and(and (< x 310) (> x 220))(and(< y 106) (> y 80))) ;posiciones entre las cuales se encuentra el rectangulo del supuesto boton
+     (close-viewport aviso)
+     (aceptar-aviso aviso (mouse-click-posn (get-mouse-click aviso)))))
+;------------------------------------------------------------------------------------------
+(define (pantalla-estrategia); cear la pantalla de elegir la estrategia de la maquina
+   (define estrategia (open-viewport "Othello" 400 150))
+   ((draw-viewport estrategia ) "darkgreen")
+   ((draw-string estrategia)  (make-posn 95 50)  "Elegir estrategia de la maquina")
+  ((draw-solid-rectangle estrategia)  (make-posn 205 80) 120 30 "white" )
+   ((draw-string estrategia)  (make-posn 235 100)  "MiniMax")
+  ((draw-solid-rectangle estrategia)  (make-posn 55 80) 120 30 "white" )
+  ((draw-string estrategia)  (make-posn 70 100)  "Poda alfa-beta")
+  (crear-ficha estrategia 0 "black" null)
+  (crear-ficha estrategia 23 "white" null)
+  estrategia
+ )
+;------------------------------------------------------------------------------------------
+(define (elegir-estrategia pantalla-estrategia click) ;simular funcionalidad de los botones de la pantalla de elegir estrategia (recursiva)
+  (define x (posn-x click)) ;accede a la x de la posicion
+  (define y (posn-y click)) ; accede a la y d ela posicion
+  (cond
+    [(and (and (< x 175) (> x 50)) (and (< y 108) (> y 75))) (close-viewport pantalla-estrategia) "poda"]
+    [(and (and (< x 325) (> x 203)) (and (< y 107) (> y 80)))(close-viewport pantalla-estrategia) "minimax"]
+    [else
+     (elegir-estrategia pantalla-estrategia (mouse-click-posn (get-mouse-click pantalla-estrategia)))])
+    )
+ 
+;------------------------------------------------------------------------------------------
+(define (crear-tablero)  ;crea el tablero con los detalles necesarios
+  (define tablero (open-viewport "Othello" 400 400)) ;creamos la ventana de la interfaz
+  (pintar-fondo-tablero tablero)
+  tablero ;devuelve la ventana
+  )
+
+(define (pintar-fondo-tablero tablero) ;pinta el fondo del tablero
+  ((draw-viewport tablero) "darkgreen") ;fondo verde
+  (for ([y (in-range 50 400 50)] [x (in-range 50 400 50)]) ;dibuja las lineas del tablero
+    ((draw-line tablero) (make-posn 0 y) (make-posn 400 y) "black")
+    ((draw-line tablero) (make-posn x 0) (make-posn x 400) "black"))
+  )
+
+;------------------------------------------------------------------------------------------
+(define (crear-ficha tablero pos color partida) ;crea una ficha y la coloca en el tablero
+  (define x (+ (* (get-numcolumna pos) 50 ) 2.5))
+  (define y (+ (* (get-numfila pos) 50 ) 2.5))
+  ((draw-solid-ellipse tablero) (make-posn x y) 45 45 color) ;dibuja una ficha
+ 
+  )
+
+;------------------------------------------------------------------------------------------
+(define (cambiar-fichas tablero partida casilla cambios color) ;cambia las fichas del tablero a partir de la ficha colocada y retorna la nueva partida
+  (for ([i (length cambios)]) ;recorre la lista de cambios
+    (crear-ficha tablero (get-elem cambios i) color partida)) ;dibuja las fichas
+  (cambiar-tablero partida casilla cambios)
+  )
+    
+ 
+;------------------------------------------------------------------------------------------
+(define (get-casilla click) ;obtenemos la casilla en la que se coloca la ficha  
+   (define columna (floor (/ (posn-x click) 50)))
+   (define fila (floor (/ (posn-y click) 50)))
+   (get-pos fila columna))
+
+;------------------------------------------------------------------------------------------
+(define (movimiento-permitido? casilla partida tablero color) ;comprueba si la ficha se pone en una casilla valida y la devuelve o busca otra valida (recursiva)
+  (if (and (equal? (get-elem partida casilla) 'libre) (not (empty? (get-cambios-tablero (cambiar-ficha partida casilla color) casilla)))) ;si esta libre y modifica alguna ficha sirve
+      casilla
+     (movimiento-permitido? (get-casilla(mouse-click-posn (get-mouse-click tablero))) partida tablero color)))
+
+;------------------------------------------------------------------------------------------
+(define (pintar-fichas-partida partida tablero) ;lee la partida desde la lista y coloca las fichas en el tablero
+  (for ([i 64]
+        #:when (not (equal? (get-elem partida i) 'libre))) ;ignora las casillas libres
+                 (cond
+                   [(equal? (get-elem partida i) 'blanc) (crear-ficha tablero i "white" partida)]
+                   [(equal? (get-elem partida i) 'negra) (crear-ficha tablero i "black" partida)])))
+;------------------------------------------------------------------------------------------
+(define (pinta-casillas-posibles partida tablero color) ;pinta un circulo rojo en las casillas donde poner una ficha produce cambios
+  (define movimientos-posibles (get-movimientos-posibles partida color))
+  (for ([i (length movimientos-posibles)]) ;recorre todas las casillas      
+    (define x (+ (* (get-numcolumna (get-elem movimientos-posibles i)) 50 ) 23)) ;coordenada x
+    (define y (+ (* (get-numfila (get-elem movimientos-posibles i)) 50 ) 23)) ;coordena y
+    ((draw-solid-ellipse tablero) (make-posn x y) 5 5 "red")) ;dibuja un punto rojo
+  )
+
+;------------------------------------------------------------------------------------------
+(define (jugar tablero partida num-jugadores ronda estrategia limite-prof) ;ejecuta la partida (recursiva)
+  
+  (define jugador1 "black") ;jugador impar
+  (define jugador2 "white");jugador par
+  (print-tablero partida)
+  (cond
+    [(or (casillas-posibles? partida 'blanc) (casillas-posibles? partida 'negra))
+       (cond
+         [(equal? (modulo ronda 2) 0) ;par
+          (cond
+            [(casillas-posibles? partida 'blanc) ;en caso de que haya mas movimientos posibles
+             (define casilla
+               (if (equal? num-jugadores 2)
+                   (begin
+                     (pinta-casillas-posibles partida tablero 'blanc)
+                     (movimiento-permitido? (get-casilla (mouse-click-posn (get-mouse-click tablero))) partida tablero 'blanc) ;casilla donde se coloca la ficha
+                     )
+                   (if (equal? estrategia "minimax")
+                       (cdr  (modo-jugar-maquina estrategia partida 'blanc null null limite-prof))
+                       (cdr (modo-jugar-maquina estrategia partida 'blanc -9999999 9999999 limite-prof)))
+                   ))
+             (pintar-fondo-tablero tablero);para quitar los puntos en cada jugada
+             (pintar-fichas-partida (cambiar-ficha partida casilla 'blanc)  tablero)
+             
+             (jugar tablero (cambiar-fichas tablero (cambiar-ficha partida casilla 'blanc) casilla (get-cambios-tablero (cambiar-ficha partida casilla 'blanc) casilla) jugador2) num-jugadores  (+ ronda 1) estrategia limite-prof) ;sigue jugando siendo la partida la que se obtiene al cambiar las fichas necesarias
+             ]
+            [else ;en caso de que no haya mas movimientos posibles (cambios vacia)
+             (define aviso (pantalla-aviso-no-movimientos))
+             (define click (mouse-click-posn (get-mouse-click aviso)))
+             (aceptar-aviso aviso click)
+            
+             (jugar tablero partida num-jugadores (+ 1 ronda) estrategia limite-prof)] ;el turno pasa al siguiente
+             
+            )] 
+         [else ;impar
+          (cond
+            [(casillas-posibles? partida'negra) ;en caso de que haya mas movimientos posibles
+             (pinta-casillas-posibles partida tablero 'negra)
+
+             (define casilla (movimiento-permitido? (get-casilla (mouse-click-posn (get-mouse-click tablero))) partida tablero 'negra)) ;casilla donde se coloca la ficha
+             (pintar-fondo-tablero tablero)
+             (pintar-fichas-partida (cambiar-ficha partida casilla 'negra)  tablero)
+             (jugar tablero (cambiar-fichas tablero (cambiar-ficha partida casilla 'negra) casilla (get-cambios-tablero (cambiar-ficha partida casilla 'negra) casilla) jugador1) num-jugadores  (+ ronda 1) estrategia limite-prof)] ;sigue jugando siendo la partida la que se obtiene al cambiar las fichas necesarias
+            [else;en caso de que no haya mas movimientos posibles (cambios vacia)
+             (define aviso (pantalla-aviso-no-movimientos))
+             (define click (mouse-click-posn (get-mouse-click aviso)))
+             (aceptar-aviso aviso click)
+             (jugar tablero partida num-jugadores (+ 1 ronda) estrategia limite-prof)
+             
+            ]
+             
+            )]
+         )
+]
+    [else (define pantallafinal (pantalla-final (get-ganador partida)))
+     ((draw-string pantallafinal)  (make-posn 134 160)  "FINAL DE LA PARTIDA !!") ;escribe eso en la pantalla final y muestra
+             ((draw-string pantallafinal) (make-posn 145 205) (string-append "Negras: " (number->string (get-num-fichas partida 'negra)) " - Blancas: "  (number->string (get-num-fichas partida 'blanc))))
+          (close-viewport tablero);cierra la pantalla del tablero
+          ]))
+          
+          
+         
+      
+;------------------------------------------------------------------------------------------
+
+(define (elegir-modo-juego click)
+  (define x (posn-x click)) ;accede a la x de la posicion
+  (define y (posn-y click)) ; accede a la y de la posicion
+  (if ( or (and (and (> x  120) (< x 180)) (and ( > y 260) (< y 320))) (and (and ( > x 220) (< x 280)) (and ( > y 260) (< y 320)))) ;si se pulsan los botones
+      (cond
+        [(and (and (> x  220) (< x 280)) (and ( > y 260) (< y 320))) ;dos jugadores
+         (define tablero (crear-tablero))
+         (pintar-fichas-partida partida1 tablero);lee el estado de la partida inicial
+         (close-viewport inicio);cerrar la ventana de inicio
+         (jugar tablero partida1 2 1 null null) ;la estrategia y el limite de profundidad es null aqui
+         ]
+        
+        [(and (and ( > x 120) (< x 180)) (and ( > y 260) (< y 320))) ;un jugador
+         (close-viewport inicio);cerrar la ventana de inicio
+         (define p-estrategia (pantalla-estrategia))
+         (define click (mouse-click-posn (get-mouse-click p-estrategia)))
+         (define estrategia (elegir-estrategia p-estrategia click))
+         (define tablero (crear-tablero))
+         (pintar-fichas-partida partida1 tablero);lee el estado de la partida inicial
+         (jugar tablero partida1 1 1 estrategia 2) ;el 4 indica el limite de profundidad
+         ]
+        )
+      (elegir-modo-juego  (mouse-click-posn (get-mouse-click inicio)))))
+    
+;------------------------------------------------------------------------------------------      
+;main
+(define inicio (pantalla-inicio))
+(define click (mouse-click-posn (get-mouse-click inicio))) ;recoge la posicion en la que se ha hecho click dentro de la ventana inicio
+(elegir-modo-juego click)
+
+
+
